@@ -5,20 +5,16 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Http.Json;
-using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
-using Common.UI;
 using interop;
 using ManagedCommon;
 using Microsoft.PowerToys.Settings.UI.Helpers;
 using Microsoft.PowerToys.Settings.UI.Library;
 using Microsoft.PowerToys.Settings.UI.Library.Telemetry.Events;
+using Microsoft.PowerToys.Settings.UI.Services;
 using Microsoft.PowerToys.Settings.UI.Views;
 using Microsoft.PowerToys.Telemetry;
 using Microsoft.UI.Xaml;
@@ -72,8 +68,6 @@ namespace Microsoft.PowerToys.Settings.UI
         public Type StartupPage { get; set; } = typeof(Views.DashboardPage);
 
         public static Action<string> IPCMessageReceivedCallback { get; set; }
-
-        private static bool loggedImmersiveDarkException;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="App"/> class.
@@ -259,19 +253,6 @@ namespace Microsoft.PowerToys.Settings.UI
                     ShellPage.OpenFlyoutCallback(p);
                 }
             }
-
-            if (SelectedTheme() == ElementTheme.Default)
-            {
-                try
-                {
-                    themeListener = new ThemeListener();
-                    themeListener.ThemeChanged += (_) => HandleThemeChange();
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError($"HandleThemeChange exception. Please install .NET 4.", ex);
-                }
-            }
         }
 
         /// <summary>
@@ -347,92 +328,24 @@ namespace Microsoft.PowerToys.Settings.UI
             return ipcmanager;
         }
 
-        public static ElementTheme SelectedTheme()
-        {
-            switch (SettingsRepository<GeneralSettings>.GetInstance(settingsUtils).SettingsConfig.Theme.ToUpper(CultureInfo.InvariantCulture))
-            {
-                case "DARK": return ElementTheme.Dark;
-                case "LIGHT": return ElementTheme.Light;
-                default: return ElementTheme.Default;
-            }
-        }
-
         public static bool IsDarkTheme()
         {
-            var selectedTheme = SelectedTheme();
-            return selectedTheme == ElementTheme.Dark || (selectedTheme == ElementTheme.Default && ThemeHelpers.GetAppTheme() == AppTheme.Dark);
-        }
-
-        public static void HandleThemeChange()
-        {
-            try
-            {
-                bool isDark = IsDarkTheme();
-
-                if (settingsWindow != null)
-                {
-                    var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(settingsWindow);
-                    ThemeHelpers.SetImmersiveDarkMode(hWnd, isDark);
-                }
-
-                if (oobeWindow != null)
-                {
-                    var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(oobeWindow);
-                    ThemeHelpers.SetImmersiveDarkMode(hWnd, isDark);
-                }
-
-                if (SelectedTheme() == ElementTheme.Default)
-                {
-                    themeListener = new ThemeListener();
-                    themeListener.ThemeChanged += (_) => HandleThemeChange();
-                }
-                else if (themeListener != null)
-                {
-                    themeListener.Dispose();
-                    themeListener = null;
-                }
-            }
-            catch (Exception e)
-            {
-                if (!loggedImmersiveDarkException)
-                {
-                    Logger.LogError($"HandleThemeChange exception. Please install .NET 4.", e);
-                    loggedImmersiveDarkException = true;
-                }
-            }
+            return ThemeManager.Theme == ElementTheme.Dark || (ThemeManager.Theme == ElementTheme.Default && ThemeHelpers.GetAppTheme() == AppTheme.Dark);
         }
 
         public static int UpdateUIThemeMethod(string themeName)
         {
-            switch (themeName?.ToUpperInvariant())
-            {
-                case "LIGHT":
-                    // OobeShellPage.OobeShellHandler.RequestedTheme = ElementTheme.Light;
-                    ShellPage.ShellHandler.RequestedTheme = ElementTheme.Light;
-                    break;
-                case "DARK":
-                    // OobeShellPage.OobeShellHandler.RequestedTheme = ElementTheme.Dark;
-                    ShellPage.ShellHandler.RequestedTheme = ElementTheme.Dark;
-                    break;
-                case "SYSTEM":
-                    // OobeShellPage.OobeShellHandler.RequestedTheme = ElementTheme.Default;
-                    ShellPage.ShellHandler.RequestedTheme = ElementTheme.Default;
-                    break;
-                default:
-                    Logger.LogError($"Unexpected theme name: {themeName}");
-                    break;
-            }
-
-            HandleThemeChange();
             return 0;
         }
 
         private static ISettingsUtils settingsUtils = new SettingsUtils();
+        private static ThemeManager themeManager = new ThemeManager(SettingsRepository<GeneralSettings>.GetInstance(settingsUtils));
+
+        public static ThemeManager ThemeManager => themeManager;
 
         private static MainWindow settingsWindow;
         private static OobeWindow oobeWindow;
         private static FlyoutWindow flyoutWindow;
-        private static ThemeListener themeListener;
 
         public static void ClearSettingsWindow()
         {
